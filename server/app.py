@@ -100,14 +100,16 @@ def logout():
 
 class RecipeList(Resource):
     def get(self):
-        """Get all recipes with pagination"""
+        if 'user_id' not in session:
+            return {'error': 'Unauthorized'}, 401
+
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 10, type=int)
         
         if per_page > 100:
             per_page = 100
         
-        pagination = Recipe.query.paginate(
+        pagination = Recipe.query.filter_by(user_id=session['user_id']).paginate(
             page=page,
             per_page=per_page,
             error_out=False
@@ -115,30 +117,29 @@ class RecipeList(Resource):
         
         recipes = [recipe.to_dict() for recipe in pagination.items]
         
-        return jsonify({
+        return {
             'recipes': recipes,
             'total': pagination.total,
             'pages': pagination.pages,
             'current_page': pagination.page,
             'per_page': per_page
-        }), 200
+        }, 200
     
     def post(self):
-        """Create a new recipe (protected)"""
         if 'user_id' not in session:
-            return jsonify({'error': 'Unauthorized'}), 401
+            return {'error': 'Unauthorized'}, 401
         
         try:
             data = request.get_json()
             if not data:
-                return jsonify({'error': 'No data provided'}), 400
+                return {'error': 'No data provided'}, 400
             
             title = data.get('title')
             instructions = data.get('instructions')
             minutes_to_complete = data.get('minutes_to_complete')
             
             if not title or not instructions or minutes_to_complete is None:
-                return jsonify({'error': 'Title, instructions, and minutes_to_complete are required'}), 400
+                return {'error': 'Title, instructions, and minutes_to_complete are required'}, 400
             
             new_recipe = Recipe(
                 title=title,
@@ -150,40 +151,44 @@ class RecipeList(Resource):
             db.session.add(new_recipe)
             db.session.commit()
             
-            return jsonify(new_recipe.to_dict()), 201
+            return new_recipe.to_dict(), 201
             
         except ValueError as e:
-            return jsonify({'error': str(e)}), 400
+            return {'error': str(e)}, 400
         except Exception as e:
             db.session.rollback()
-            return jsonify({'error': str(e)}), 400
+            return {'error': str(e)}, 400
 
 
 class RecipeDetail(Resource):
     def get(self, id):
-        """Get a single recipe by ID"""
-        recipe = Recipe.query.get(id)
-        if not recipe:
-            return jsonify({'error': 'Recipe not found'}), 404
-        
-        return jsonify(recipe.to_dict()), 200
-    
-    def patch(self, id):
-        """Update a recipe (protected - only owner)"""
         if 'user_id' not in session:
-            return jsonify({'error': 'Unauthorized'}), 401
-        
+            return {'error': 'Unathorized'}, 401
+
         recipe = Recipe.query.get(id)
         if not recipe:
-            return jsonify({'error': 'Recipe not found'}), 404
+            return {'error': 'Recipe not found'}, 404
         
         if recipe.user_id != session['user_id']:
-            return jsonify({'error': 'Unauthorized - you can only edit your own recipes'}), 403
+            return {'error': 'Unauthorized'}, 401
+        
+        return recipe.to_dict(), 200
+    
+    def patch(self, id):
+        if 'user_id' not in session:
+            return {'error': 'Unauthorized'}, 401
+        
+        recipe = Recipe.query.get(id)
+        if not recipe:
+            return {'error': 'Recipe not found'}, 404
+        
+        if recipe.user_id != session['user_id']:
+            return {'error': 'Unauthorized - you can only edit your own recipes'}, 403
         
         try:
             data = request.get_json()
             if not data:
-                return jsonify({'error': 'No data provided'}), 400
+                return {'error': 'No data provided'}, 400
             
             if 'title' in data:
                 recipe.title = data['title']
@@ -194,33 +199,32 @@ class RecipeDetail(Resource):
             
             db.session.commit()
             
-            return jsonify(recipe.to_dict()), 200
+            return recipe.to_dict(), 200
             
         except ValueError as e:
-            return jsonify({'error': str(e)}), 400
+            return {'error': str(e)}, 400
         except Exception as e:
             db.session.rollback()
-            return jsonify({'error': str(e)}), 400
+            return {'error': str(e)}, 400
     
     def delete(self, id):
-        """Delete a recipe (protected - only owner)"""
         if 'user_id' not in session:
-            return jsonify({'error': 'Unauthorized'}), 401
+            return {'error': 'Unauthorized'}, 401
         
         recipe = Recipe.query.get(id)
         if not recipe:
-            return jsonify({'error': 'Recipe not found'}), 404
+            return {'error': 'Recipe not found'}, 404
         
         if recipe.user_id != session['user_id']:
-            return jsonify({'error': 'Unauthorized - you can only delete your own recipes'}), 403
+            return {'error': 'Unauthorized - you can only delete your own recipes'}, 403
         
         try:
             db.session.delete(recipe)
             db.session.commit()
-            return jsonify({}), 204
+            return {}, 204
         except Exception as e:
             db.session.rollback()
-            return jsonify({'error': str(e)}), 400
+            return {'error': str(e)}, 400
 
 
 api.add_resource(RecipeList, '/recipes')
